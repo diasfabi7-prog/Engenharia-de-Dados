@@ -1,0 +1,30 @@
+# Copie os valores para os widgets do Databricks no ambiente de destino.
+projeto:
+  nome: "Mercado de combustíveis no Brasil"
+  versao_referencia: "2022-2026h1"
+
+github:
+  proprietario: "diasfabi7-prog"
+  repositorio: "Engenharia-de-Dados"
+  visibilidade: "publico"
+
+databricks:
+  catalogo: "workspace"
+  schema: "anp_combustiveis_br_2022_2026"
+  volume: "anp"
+  raw_root: "/Volumes/workspace/anp_combustiveis_br_2022_2026/anp/raw"
+  config_root: "/Volumes/workspace/anp_combustiveis_br_2022_2026/anp/config"
+  metadata_root: "/Volumes/workspace/anp_combustiveis_br_2022_2026/anp/metadata"
+
+recorte:
+  data_inicial: "2022-01-01"
+  data_final: "2026-06-30"
+  ultimo_ano_municipal: 2024
+  minimo_postos: 3
+  minimo_semanas: 4
+  perfil_completo: true
+
+fontes:
+  arquivos_brutos_esperados: 14
+  copiar_apenas_entradas_originais: true
+  recriar_arquivos_extraidos_no_notebook_00: true

@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""Baixa os arquivos oficiais da ANP e registra a origem de cada lote."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import shutil
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+from zipfile import BadZipFile, ZipFile
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RAW_ROOT = PROJECT_ROOT / "data" / "raw"
+METADATA_ROOT = PROJECT_ROOT / "data" / "metadata"
+PRICE_PAGE = (
+    "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+    "serie-historica-de-precos-de-combustiveis"
+)
+
+
+@dataclass(frozen=True)
+class Source:
+    name: str
+    url: str
+    relative_path: str
+    kind: str
+    description: str
+    extract_relative_path: str | None = None
+    member_contains: tuple[str, ...] = ()
+    output_filename: str | None = None
+
+
+SOURCES: dict[str, Source] = {
+    "precos_2022_1": Source(
+        "precos_2022_1",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/shpc/dsas/ca/precos-semestrais-ca.zip",
+        "precos/precos_2022_1.zip",
+        "zip",
+        "Pesquisa de preços de combustíveis automotivos, 1º semestre de 2022.",
+    ),
+    "precos_2022_2": Source(
+        "precos_2022_2",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/shpc/dsas/ca/ca-2022-02.zip",
+        "precos/precos_2022_2.zip",
+        "zip",
+        "Pesquisa de preços de combustíveis automotivos, 2º semestre de 2022.",
+    ),
+    "precos_2023_1": Source(
+        "precos_2023_1",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/shpc/dsas/ca/ca-2023-01.zip",
+        "precos/precos_2023_1.zip",
+        "zip",
+        "Pesquisa de preços de combustíveis automotivos, 1º semestre de 2023.",
+    ),
+    "precos_2023_2": Source(
+        "precos_2023_2",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/shpc/dsas/ca/ca-2023-02.zip",
+        "precos/precos_2023_2.zip",
+        "zip",
+        "Pesquisa de preços de combustíveis automotivos, 2º semestre de 2023.",
+    ),
+    "precos_2024_1": Source(
+        "precos_2024_1",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/shpc/dsas/ca/ca-2024-01.zip",
+        "precos/precos_2024_1.zip",
+        "zip",
+        "Pesquisa de preços de combustíveis automotivos, 1º semestre de 2024.",
+    ),
+    "precos_2024_2": Source(
+        "precos_2024_2",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/shpc/dsas/ca/ca-2024-02.zip",
+        "precos/precos_2024_2.zip",
+        "zip",
+        "Pesquisa de preços de combustíveis automotivos, 2º semestre de 2024.",
+    ),
+    "precos_2025_1": Source(
+        "precos_2025_1",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/shpc/dsas/ca/ca-2025-01.zip/@@download/file",
+        "precos/precos_2025_1.zip",
+        "zip",
+        "Pesquisa de preços de combustíveis automotivos, 1º semestre de 2025.",
+    ),
+    "precos_2025_2": Source(
+        "precos_2025_2",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/shpc/dsas/ca/ca-2025-02.zip/@@download/file",
+        "precos/precos_2025_2.zip",
+        "zip",
+        "Pesquisa de preços de combustíveis automotivos, 2º semestre de 2025.",
+    ),
+    "precos_2026_1": Source(
+        "precos_2026_1",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/shpc/dsas/ca/ca-2026-01.zip/@@download/file",
+        "precos/precos_2026_1.zip",
+        "zip",
+        "Pesquisa de preços de combustíveis automotivos, 1º semestre de 2026.",
+    ),
+    "vendas_gasolina_c": Source(
+        "vendas_gasolina_c",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/vdpb/vaehdpm/gasolina-c/"
+        "vendas-anuais-de-gasolina-c-por-municipio.csv",
+        "vendas/vendas_gasolina_c_municipio.csv",
+        "csv",
+        "Vendas anuais de gasolina C por município.",
+    ),
+    "vendas_etanol_hidratado": Source(
+        "vendas_etanol_hidratado",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/vdpb/vaehdpm/etanol-hidratado/"
+        "vendas-anuais-de-etanol-hidratado-por-municipio.csv",
+        "vendas/vendas_etanol_hidratado_municipio.csv",
+        "csv",
+        "Vendas anuais de etanol hidratado por município.",
+    ),
+    "cadastro_revendedores": Source(
+        "cadastro_revendedores",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/arquivos-dados-cadastrais-dos-revendedores-varejistas-de-"
+        "combustiveis-automotivos/"
+        "dados-cadastrais-revendedores-varejistas-combustiveis-automoveis.csv",
+        "cadastro/cadastro_revendedores_atual.csv",
+        "csv",
+        "Cadastro atual de revendedores varejistas de combustíveis automotivos.",
+    ),
+    "logistica_mercado": Source(
+        "logistica_mercado",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/mdpg/movimentacaologistica.zip",
+        "logistica/movimentacaologistica.zip",
+        "zip",
+        "Logística 02: vendas no mercado brasileiro de combustíveis por vendedor e UF.",
+        "logistica/extraidos",
+        ("LOGISTICA 02", "VENDAS NO MERCADO"),
+        "vendas_mercado_brasileiro.csv",
+    ),
+    "simp_liquidos": Source(
+        "simp_liquidos",
+        "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/"
+        "arquivos/mdpg/liquidos.zip",
+        "liquidos/liquidos.zip",
+        "zip",
+        "Base de vendas do SIMP usada no Painel do Mercado Brasileiro de Combustíveis Líquidos.",
+        "liquidos/extraidos",
+        ("LIQUIDOS_VENDAS_ATUAL",),
+        "liquidos_vendas_atual.csv",
+    ),
+}
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for block in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def request_for(url: str, timeout: int):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Referer": PRICE_PAGE,
+    }
+    return urlopen(Request(url, headers=headers), timeout=timeout)
+
+
+def fallback_download_url(url: str) -> str | None:
+    """Retorna a rota de download do portal quando a URL aponta para um arquivo."""
+    if url.endswith("/@@download/file"):
+        return None
+    if url.lower().endswith((".zip", ".csv")):
+        return f"{url}/@@download/file"
+    return None
+
+
+def extract_csvs(
+    archive: Path,
+    target_dir: Path,
+    force: bool,
+    member_contains: tuple[str, ...] = (),
+    output_filename: str | None = None,
+) -> list[str]:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    extracted: list[str] = []
+    try:
+        with ZipFile(archive) as zip_file:
+            members = [
+                member
+                for member in zip_file.infolist()
+                if not member.is_dir() and member.filename.lower().endswith(".csv")
+            ]
+            if member_contains:
+                tokens = tuple(token.casefold() for token in member_contains)
+                members = [
+                    member
+                    for member in members
+                    if all(token in member.filename.casefold() for token in tokens)
+                ]
+            if not members:
+                criteria = ", ".join(member_contains) if member_contains else "CSV"
+                raise RuntimeError(f"Não encontrei o arquivo esperado ({criteria}) em {archive}.")
+            if output_filename and len(members) != 1:
+                raise RuntimeError(f"A seleção de {archive} retornou {len(members)} CSVs; era esperado apenas um.")
+
+            for member in members:
+                filename = output_filename or Path(member.filename).name
+                destination = target_dir / filename
+                if destination.exists() and not force:
+                    extracted.append(str(destination.relative_to(PROJECT_ROOT)))
+                    continue
+                with zip_file.open(member) as origin, destination.open("wb") as output:
+                    shutil.copyfileobj(origin, output)
+                extracted.append(str(destination.relative_to(PROJECT_ROOT)))
+    except BadZipFile as error:
+        raise RuntimeError(f"Arquivo ZIP inválido: {archive}") from error
+    return extracted
+
+
+def download(source: Source, timeout: int, force: bool, extract: bool) -> dict[str, Any]:
+    target = RAW_ROOT / source.relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    downloaded = False
+
+    if not target.exists() or force:
+        temporary = target.with_suffix(target.suffix + ".part")
+        temporary.unlink(missing_ok=True)
+        urls = [source.url]
+        fallback_url = fallback_download_url(source.url)
+        if fallback_url:
+            urls.append(fallback_url)
+
+        response_error: HTTPError | None = None
+        try:
+            for url in urls:
+                try:
+                    with request_for(url, timeout) as response, temporary.open("wb") as output:
+                        for block in iter(lambda: response.read(1024 * 1024), b""):
+                            output.write(block)
+                    break
+                except HTTPError as error:
+                    response_error = error
+                    temporary.unlink(missing_ok=True)
+            else:
+                raise RuntimeError(
+                    f"A ANP respondeu HTTP {response_error.code if response_error else 'desconhecido'} "
+                    f"para {source.name}."
+                )
+        except URLError as error:
+            temporary.unlink(missing_ok=True)
+            raise RuntimeError(f"Não foi possível acessar {source.url}: {error.reason}") from error
+        temporary.replace(target)
+        downloaded = True
+
+    extracted: list[str] = []
+    if source.kind == "zip" and extract:
+        relative_directory = source.extract_relative_path or f"{Path(source.relative_path).parent}/extraidos/{source.name}"
+        extracted = extract_csvs(
+            target,
+            RAW_ROOT / relative_directory,
+            force,
+            source.member_contains,
+            source.output_filename,
+        )
+
+    return {
+        "source": source.name,
+        "description": source.description,
+        "url": source.url,
+        "local_file": str(target.relative_to(PROJECT_ROOT)),
+        "kind": source.kind,
+        "downloaded_at_utc": datetime.fromtimestamp(target.stat().st_mtime, timezone.utc).isoformat(
+            timespec="seconds"
+        ),
+        "downloaded_now": downloaded,
+        "bytes": target.stat().st_size,
+        "sha256": sha256(target),
+        "extracted_files": extracted,
+    }
+
+
+def load_manifest(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"generated_at_utc": None, "sources": {}}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"generated_at_utc": None, "sources": {}}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--only", nargs="+", choices=sorted(SOURCES), help="Baixa apenas as fontes indicadas.")
+    parser.add_argument("--force", action="store_true", help="Baixa novamente arquivos já existentes.")
+    parser.add_argument("--no-extract", action="store_true", help="Não extrai os CSVs contidos nos ZIPs.")
+    parser.add_argument("--timeout", type=int, default=90, help="Tempo máximo por requisição, em segundos.")
+    parser.add_argument("--list", action="store_true", help="Lista os nomes aceitos por --only.")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    if args.list:
+        for name, source in SOURCES.items():
+            print(f"{name}: {source.description}")
+        return 0
+
+    selected = args.only or list(SOURCES)
+    METADATA_ROOT.mkdir(parents=True, exist_ok=True)
+    manifest_path = METADATA_ROOT / "download_manifest.json"
+    manifest = load_manifest(manifest_path)
+    manifest.setdefault("sources", {})
+
+    failures = 0
+    for name in selected:
+        source = SOURCES[name]
+        try:
+            item = download(source, args.timeout, args.force, not args.no_extract)
+        except RuntimeError as error:
+            failures += 1
+            print(f"ERRO [{name}]: {error}", file=sys.stderr)
+            continue
+        manifest["sources"][name] = item
+        action = "baixado" if item["downloaded_now"] else "já existente"
+        print(f"OK [{name}]: {action} ({item['bytes']:,} bytes)")
+
+    manifest["generated_at_utc"] = now_iso()
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Manifesto: {manifest_path.relative_to(PROJECT_ROOT)}")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
