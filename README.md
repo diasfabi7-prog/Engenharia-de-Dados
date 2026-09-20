@@ -139,7 +139,7 @@ tests/       verificações dos utilitários de coleta e inspeção
 04_analises.sql
 ```
 
-O roteiro detalhado está em [docs/execucao_databricks.md](docs/execucao_databricks.md). O modelo e o catálogo estão em [docs/modelo_dados.md](docs/modelo_datados.md) e [docs/catalogo_dados.md](docs/catalogo_dados.md).
+O roteiro detalhado está em [docs/execucao_databricks.md](docs/execucao_databricks.md). O modelo e o catálogo estão em [docs/modelo_dados.md](docs/modelo_dados.md) e [docs/catalogo_dados.md](docs/catalogo_dados.md).
 
 ## Verificações locais
 
