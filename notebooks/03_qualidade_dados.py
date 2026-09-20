@@ -316,8 +316,8 @@ qualidade = [
     count_rule(
         "silver_venda_municipio",
         "VENDA_MUNICIPIO_004",
-        "Repetição da chave código IBGE, produto e ano.",
-        F.col("duplicidade_chave"),
+        "Repetição da chave código IBGE, produto e ano dentro do recorte.",
+        F.col("dentro_do_recorte") & F.col("duplicidade_chave"),
     ),
     count_rule(
         "silver_venda_municipio",
