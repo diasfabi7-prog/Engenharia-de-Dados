@@ -4,6 +4,10 @@ Neste projeto, construí um pipeline de dados no Databricks para organizar e ana
 
 O projeto foi estruturado como um lakehouse, com rastreabilidade desde o arquivo de origem até as tabelas utilizadas nas consultas analíticas.
 
+## Documento de entrega
+
+O relatório completo do MVP está em **[relatorio-mvp-fabiola-dias-carvalho.pdf](relatorio-mvp-fabiola-dias-carvalho.pdf)**. Ele reúne, em um único documento: contexto de negócio e perguntas, coleta e licença dos dados, modelagem e catálogo, pipeline de carga (com evidências de execução no Databricks), qualidade de dados, análise e respostas às perguntas do projeto, limitações e autoavaliação. O Apêndice A do relatório mapeia cada requisito do enunciado à seção correspondente.
+
 ## Objetivo
 
 Analisar gasolina C comum e etanol hidratado comum nas Unidades da Federação entre janeiro de 2022 e junho de 2026. O estudo procura responder:
@@ -109,11 +113,12 @@ Os status de atenção e informativo não são descartados. Eles registram limit
 - [Vendas municipais da ANP](https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/vendas-de-derivados-de-petroleo-e-biocombustiveis): escala anual por município.
 - [Cadastro de revendedores da ANP](https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/dados-cadastrais-dos-revendedores-varejistas-de-combustiveis-automotivos): contexto atual de rede e bandeira.
 
-A origem, a linhagem e as condições de uso estão documentadas em [docs/fontes_e_linhagem.md](docs/fontes_e_linhagem.md).
+A origem, a linhagem e as condições de uso estão documentadas em [docs/fontes_e_linhagem.md](docs/fontes_e_linhagem.md) e na Seção 2 do relatório.
 
 ## Estrutura do repositório
 
 ```text
+relatorio-mvp-fabiola-dias-carvalho.pdf   relatório completo da entrega (Etapa 5)
 config/      mapeamentos, catálogo de atributos e exemplo de ambiente
 data/        estrutura local para dados e metadados não versionados
 docs/        objetivo, cobertura, linhagem, modelo, catálogo e execução
@@ -159,5 +164,3 @@ O comando valida a sintaxe dos arquivos Python, executa o lint, os testes unitá
 - a pesquisa de preços é amostral;
 - o cadastro de revendedores representa a situação da data de extração;
 - diferenças entre as fontes são tratadas como diferenças de escopo antes de serem classificadas como erro.
-
-O relatório, as evidências visuais, a autoavaliação e a apresentação são materiais complementares entregues na plataforma da PUC.
